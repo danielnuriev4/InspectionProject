@@ -67,6 +67,9 @@ function normalizeMethod(body) {
     description_template: body.description_template ?? body.descriptionTemplate ?? "",
     params_json: normalizeParams(body.params_json ?? body.paramsJson ?? body.params),
     sort_order: Number(body.sort_order ?? body.sortOrder ?? 0) || 0,
+    is_default_equipment_row: Boolean(body.is_default_equipment_row ?? body.isDefaultEquipmentRow),
+    default_maker_model: body.default_maker_model ?? body.defaultMakerModel ?? "",
+    default_serial: body.default_serial ?? body.defaultSerial ?? "",
   };
 }
 

@@ -86,6 +86,9 @@ create table if not exists suspension_methods (
   description_template text not null default '',
   params_json jsonb not null default '[]'::jsonb,
   sort_order integer not null default 0,
+  is_default_equipment_row boolean not null default false,
+  default_maker_model text not null default '',
+  default_serial text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
@@ -158,6 +161,9 @@ alter table report_equipment add column if not exists suspension_params jsonb no
 alter table report_equipment add column if not exists scaffold_number text not null default '';
 alter table report_equipment add column if not exists motor_numbers text[] not null default '{}'::text[];
 alter table report_equipment add column if not exists rows_json jsonb not null default '[]'::jsonb;
+alter table suspension_methods add column if not exists is_default_equipment_row boolean not null default false;
+alter table suspension_methods add column if not exists default_maker_model text not null default '';
+alter table suspension_methods add column if not exists default_serial text not null default '';
 create index if not exists equipment_catalog_template_id_idx on equipment_catalog(template_id);
 create index if not exists equipment_catalog_is_template_idx on equipment_catalog(is_template);
 create index if not exists customer_equipment_defaults_customer_id_idx on customer_equipment_defaults(customer_id);
@@ -193,6 +199,7 @@ using (owner_id = auth.uid());
 alter table suspension_methods enable row level security;
 
 grant usage on schema public to authenticated;
+grant select, insert, update, delete on customer_equipment_defaults to authenticated;
 grant select, insert, update, delete on suspension_methods to authenticated;
 
 drop policy if exists suspension_methods_select on suspension_methods;

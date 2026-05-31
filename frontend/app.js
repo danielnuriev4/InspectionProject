@@ -230,6 +230,9 @@ function mapSuspensionMethodFromApi(row) {
     descriptionTemplate: row.description_template || row.descriptionTemplate || "",
     params: Array.isArray(row.params_json || row.paramsJson) ? (row.params_json || row.paramsJson) : [],
     sortOrder: Number(row.sort_order ?? row.sortOrder ?? 0) || 0,
+    isDefaultEquipmentRow: Boolean(row.is_default_equipment_row ?? row.isDefaultEquipmentRow),
+    defaultMakerModel: row.default_maker_model || row.defaultMakerModel || "",
+    defaultSerial: row.default_serial || row.defaultSerial || "",
   };
 }
 
@@ -580,6 +583,51 @@ function emptyEquipmentRow(kind = "") {
     description: "",
     makerModel: "",
     serial: "",
+  };
+}
+
+function defaultCustomerEquipmentRows() {
+  const defaultMethods = state.suspensionMethods
+    .filter((method) => method.isDefaultEquipmentRow)
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || (a.name || "").localeCompare(b.name || ""));
+
+  return defaultMethods.map((method) => {
+    const choice = method.code || method.id;
+    const params = defaultSuspensionParams(choice, {});
+    return buildConfiguredRow({
+      id: crypto.randomUUID(),
+      kind: "equipment_description",
+      descriptionChoice: choice,
+      descriptionParams: params,
+      description: "",
+      makerModel: method.defaultMakerModel || "",
+      serial: method.defaultSerial || "",
+    });
+  });
+}
+
+function defaultCustomerEquipmentTemplate(overrides = {}) {
+  const rows = defaultCustomerEquipmentRows();
+  return {
+    id: `tmp-${crypto.randomUUID()}`,
+    customerId: "",
+    templateId: "",
+    isTemplate: true,
+    suspensionMethod: "",
+    suspensionParams: {},
+    platformType: "",
+    platformParams: {},
+    scaffoldNumber: "",
+    motorNumbers: [],
+    type: "מבנה ציוד",
+    manufacturer: "",
+    model: "",
+    serial: "",
+    safeLoad: "",
+    selfWeight: "",
+    description: "",
+    rows: rows.length ? rows : [emptyEquipmentRow("equipment_description")],
+    ...overrides,
   };
 }
 
@@ -1096,28 +1144,9 @@ function collectChecks() {
 }
 
 function addEquipmentDefault() {
-  const id = `tmp-${crypto.randomUUID()}`;
-  state.equipmentCatalog.unshift({
-    id,
-    customerId: "",
-    templateId: "",
-    isTemplate: true,
-    suspensionMethod: "",
-    suspensionParams: {},
-    platformType: "",
-    platformParams: {},
-    scaffoldNumber: "",
-    motorNumbers: [],
-    type: "",
-    manufacturer: "",
-    model: "",
-    serial: "",
-    safeLoad: "",
-    selfWeight: "",
-    description: "",
-    rows: [emptyEquipmentRow()],
-  });
-  state.selectedEquipmentDefaultId = id;
+  const equipment = defaultCustomerEquipmentTemplate();
+  state.equipmentCatalog.unshift(equipment);
+  state.selectedEquipmentDefaultId = equipment.id;
   state.activeSettingsPanel = "equipment";
   renderSettings();
 }
@@ -1447,6 +1476,9 @@ async function saveSelectedCustomer() {
     state.customers.unshift(saved);
     state.selectedCustomerDefaultId = saved.id;
     state.selectedEquipmentCustomerId = saved.id;
+    if (isNew) {
+      await createDefaultEquipmentForCustomer(saved.id);
+    }
     state.activeSettingsPanel = "equipment";
     populateCustomerSelect();
     renderSettings();
@@ -1454,6 +1486,41 @@ async function saveSelectedCustomer() {
   } catch (error) {
     showMessage(error.message, "error");
   }
+}
+
+async function createDefaultEquipmentForCustomer(customerId) {
+  const rows = defaultCustomerEquipmentRows();
+  if (!customerId || !rows.length) return null;
+
+  const equipment = defaultCustomerEquipmentTemplate({
+    id: "",
+    customerId,
+    rows,
+  });
+  const catalogPayload = await apiFetch("/api/equipment-catalog", {
+    method: "POST",
+    body: JSON.stringify(equipment),
+  });
+  const savedCatalogItem = mapEquipmentFromApi(catalogPayload.equipment);
+  state.equipmentCatalog = state.equipmentCatalog.filter((item) => item.id !== savedCatalogItem.id);
+  state.equipmentCatalog.unshift(savedCatalogItem);
+
+  const defaultPayload = await apiFetch("/api/customer-equipment-defaults", {
+    method: "POST",
+    body: JSON.stringify({
+      customerId,
+      equipmentCatalogId: savedCatalogItem.id,
+      safeLoad: savedCatalogItem.safeLoad,
+      selfWeight: savedCatalogItem.selfWeight,
+      rows: savedCatalogItem.rows,
+    }),
+  });
+  const savedDefault = mapCustomerEquipmentDefaultFromApi(defaultPayload.default);
+  state.customerEquipmentDefaults = state.customerEquipmentDefaults
+    .filter((item) => !(item.customerId === savedDefault.customerId && item.equipmentCatalogId === savedDefault.equipmentCatalogId));
+  state.customerEquipmentDefaults.unshift(savedDefault);
+  state.selectedEquipmentDefaultId = savedCatalogItem.id;
+  return savedCatalogItem;
 }
 
 async function saveSelectedEquipmentDefault() {
@@ -1585,6 +1652,9 @@ function addSuspensionMethod() {
     descriptionTemplate: "",
     params: [],
     sortOrder: state.suspensionMethods.length + 1,
+    isDefaultEquipmentRow: false,
+    defaultMakerModel: "",
+    defaultSerial: "",
   });
   state.selectedSuspensionMethodId = id;
   state.activeSettingsPanel = "suspension";
@@ -1621,6 +1691,16 @@ function renderSuspensionMethods() {
         <label>סדר תצוגה
           <input data-suspension-method-field="sortOrder" type="number" value="${escapeHtml(method.sortOrder)}" />
         </label>
+        <label class="checkbox-label">
+          <input data-suspension-method-field="isDefaultEquipmentRow" type="checkbox" ${method.isDefaultEquipmentRow ? "checked" : ""} />
+          הוסף אוטומטית לציוד חדש
+        </label>
+        <label>יצרן ודגם ברירת מחדל
+          <input data-suspension-method-field="defaultMakerModel" value="${escapeHtml(method.defaultMakerModel || "")}" />
+        </label>
+        <label>מס"ד / מס' רישוי ברירת מחדל
+          <input data-suspension-method-field="defaultSerial" value="${escapeHtml(method.defaultSerial || "")}" />
+        </label>
         <label class="wide-label">מלל תיאור
           <textarea class="auto-size-textarea" data-suspension-method-field="descriptionTemplate" rows="5">${escapeHtml(method.descriptionTemplate)}</textarea>
         </label>
@@ -1655,6 +1735,8 @@ function readSuspensionMethodForm() {
       }
     } else if (field === "sortOrder") {
       result.sortOrder = Number(input.value) || 0;
+    } else if (field === "isDefaultEquipmentRow") {
+      result.isDefaultEquipmentRow = input.checked;
     } else {
       result[field] = input.value.trim();
     }
@@ -1766,7 +1848,18 @@ async function copyCustomerEquipmentToSelectedCustomer() {
   }
 
   try {
-    const equipmentCatalogId = sourceEquipment.defaultId || sourceEquipment.id;
+    const catalogPayload = await apiFetch("/api/equipment-catalog", {
+      method: "POST",
+      body: JSON.stringify({
+        ...sourceEquipment,
+        id: "",
+        customerId: targetCustomerId,
+        rows: normalizeEquipmentRows(sourceEquipment.rows || [], sourceEquipment),
+      }),
+    });
+    const savedCatalogItem = mapEquipmentFromApi(catalogPayload.equipment);
+    state.equipmentCatalog.unshift(savedCatalogItem);
+    const equipmentCatalogId = savedCatalogItem.id;
     const payload = await apiFetch("/api/customer-equipment-defaults", {
       method: "POST",
       body: JSON.stringify({
