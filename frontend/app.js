@@ -27,6 +27,7 @@ const authMessage = document.getElementById("authMessage");
 const appMessage = document.getElementById("appMessage");
 const HTML2CANVAS_SRC = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
 const JSPDF_SRC = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
+const AUTH_STORAGE_KEY = "inspection_app_session";
 
 const screens = document.querySelectorAll(".screen");
 const screenButtons = document.querySelectorAll("[data-screen]");
@@ -102,12 +103,14 @@ async function refreshSession() {
   if (!response.ok) {
     state.session = null;
     state.currentUser = null;
+    clearStoredSession();
     showLogin();
     throw new Error(payload.error || "Connection expired. Please log in again.");
   }
 
   state.session = payload.session;
   state.currentUser = payload.user;
+  persistSession(payload);
 }
 
 async function apiFetch(path, options = {}, retryOnJwtClockSkew = true) {
@@ -139,7 +142,51 @@ function reportFileName(report = getReportData()) {
 }
 
 async function initAuth() {
-  showLogin();
+  const stored = loadStoredSession();
+  if (!stored?.session?.refresh_token) {
+    showLogin();
+    return;
+  }
+
+  state.session = stored.session;
+  state.currentUser = stored.user || null;
+  try {
+    await refreshSession();
+    showApp();
+    await loadInitialData();
+  } catch {
+    clearStoredSession();
+    state.session = null;
+    state.currentUser = null;
+    showLogin();
+  }
+}
+
+function persistSession(payload = {}) {
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+      session: payload.session || state.session,
+      user: payload.user || state.currentUser,
+    }));
+  } catch {
+    // Local storage can be unavailable in private modes; auth will still work for the current page.
+  }
+}
+
+function loadStoredSession() {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function clearStoredSession() {
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup errors.
+  }
 }
 
 function showLogin() {
@@ -1215,6 +1262,7 @@ function addEquipmentDefault() {
 }
 
 function addCustomerDefault() {
+  updateCustomerEditorStateFromForm();
   const id = `tmp-${crypto.randomUUID()}`;
   state.customers.unshift({
     id,
@@ -1585,6 +1633,18 @@ function readCustomerForm() {
   return result;
 }
 
+function updateCustomerEditorStateFromForm() {
+  const customer = readCustomerForm();
+  if (!customer) return null;
+  state.customers = state.customers.map((item) => item.id === customer.id ? { ...item, ...customer } : item);
+  const params = readCustomerRowParams(customer.id, { includeBlank: true });
+  state.customerEquipmentRowParams = [
+    ...state.customerEquipmentRowParams.filter((item) => item.customerId !== customer.id),
+    ...params,
+  ];
+  return customer;
+}
+
 function readCustomerTemplateParamRows(customerId) {
   const card = customerDefaultsList.querySelector("[data-customer-default-id]");
   if (!card) return [];
@@ -1680,14 +1740,10 @@ async function saveSelectedCustomer() {
     state.customers.unshift(saved);
     state.selectedCustomerDefaultId = saved.id;
     state.selectedEquipmentCustomerId = saved.id;
-    if (isNew) {
-      await createDefaultEquipmentForCustomer(saved.id);
-    }
     await saveCustomerRowParams(saved.id);
-    state.activeSettingsPanel = "equipment";
     populateCustomerSelect();
     renderSettings();
-    showMessage("הלקוח נשמר. עכשיו בחר ציוד ושמור לו תבנית.", "success");
+    showMessage("הלקוח והפרמטרים נשמרו.", "success");
   } catch (error) {
     showMessage(error.message, "error");
   }
@@ -2996,11 +3052,24 @@ byId("saveEquipmentDefaultBtn").addEventListener("click", saveSelectedEquipmentD
 byId("saveCustomerDefaultBtn").addEventListener("click", saveSelectedCustomer);
 byId("saveSuspensionMethodBtn")?.addEventListener("click", saveSelectedSuspensionMethod);
 manageCustomerSelect.addEventListener("change", () => {
+  updateCustomerEditorStateFromForm();
   state.selectedCustomerDefaultId = manageCustomerSelect.value;
   renderCustomerDefaults();
 });
+customerDefaultsList.addEventListener("input", (event) => {
+  if (
+    event.target.dataset.customerDefaultField
+    || event.target.dataset.customerRowParamField
+  ) {
+    updateCustomerEditorStateFromForm();
+  }
+});
 customerDefaultsList.addEventListener("change", (event) => {
+  if (event.target.dataset.customerDefaultField) {
+    updateCustomerEditorStateFromForm();
+  }
   if (event.target.dataset.customerRowParamField === "equipmentCatalogId") {
+    updateCustomerEditorStateFromForm();
     const customerId = state.selectedCustomerDefaultId;
     const params = readCustomerRowParams(customerId, { includeBlank: true });
     state.customerEquipmentRowParams = [
@@ -3120,6 +3189,7 @@ document.addEventListener("click", async (event) => {
   const moveDirection = event.target.dataset.direction;
 
   if (settingsTab) {
+    updateCustomerEditorStateFromForm();
     state.activeSettingsPanel = settingsTab;
     renderSettings();
   }
@@ -3147,6 +3217,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (addCustomerRowParam) {
+    updateCustomerEditorStateFromForm();
     const customerId = state.selectedCustomerDefaultId;
     const currentParams = readCustomerRowParams(customerId, { includeBlank: true });
     const firstEquipment = state.equipmentCatalog.find((item) => !item.id.startsWith("tmp-"));
@@ -3167,6 +3238,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (removeCustomerRowParamId) {
+    updateCustomerEditorStateFromForm();
     const customerId = state.selectedCustomerDefaultId;
     const currentParams = readCustomerRowParams(customerId, { includeBlank: true });
     state.customerEquipmentRowParams = [
@@ -3310,6 +3382,7 @@ loginForm.addEventListener("submit", async (event) => {
 
     state.session = payload.session;
     state.currentUser = payload.user;
+    persistSession(payload);
     showAuthMessage("");
     showApp();
     await loadInitialData();
@@ -3331,6 +3404,7 @@ byId("logoutBtn").addEventListener("click", async () => {
   }
   state.session = null;
   state.currentUser = null;
+  clearStoredSession();
   state.customers = [];
   state.equipmentCatalog = [];
   state.customerEquipmentDefaults = [];
