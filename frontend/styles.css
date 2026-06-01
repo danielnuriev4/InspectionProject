@@ -622,7 +622,6 @@ textarea:focus {
 .equipment-row-editor td > .equipment-table-textarea {
   display: block;
   min-height: 72px;
-  height: auto !important;
   box-sizing: border-box;
   padding: 6px;
 }
@@ -1331,7 +1330,6 @@ label:has([data-removed-field]) {
 
   .equipment-row-editor td > .equipment-table-textarea {
     min-height: 72px;
-    height: auto !important;
     width: 100%;
   }
 

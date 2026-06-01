@@ -2014,8 +2014,9 @@ function resizeAutoTextareas(scope = document) {
     if (!textarea.isConnected || textarea.offsetParent === null) return;
     const computed = window.getComputedStyle(textarea);
     const minHeight = Number.parseFloat(computed.minHeight) || 0;
-    textarea.style.height = "0px";
-    textarea.style.height = `${Math.ceil(Math.max(textarea.scrollHeight + 2, minHeight))}px`;
+    textarea.style.setProperty("overflow", "hidden");
+    textarea.style.setProperty("height", "auto", "important");
+    textarea.style.setProperty("height", `${Math.ceil(Math.max(textarea.scrollHeight + 2, minHeight))}px`, "important");
   });
 }
 
@@ -2040,6 +2041,8 @@ if (typeof MutationObserver !== "undefined") {
     }
   });
 }
+
+window.addEventListener("resize", () => queueResizeAutoTextareas());
 
 function readSuspensionMethodForm() {
   const card = suspensionMethodsList?.querySelector("[data-suspension-method-id]");
