@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>חד-אור הנדסה | תסקירי בדיקה והרמה</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <section id="authScreen" class="auth-screen">
+    <form id="loginForm" class="auth-card">
+      <img src="logo.png" alt="חד-אור הנדסה" />
+      <h1>חד-אור הנדסה</h1>
+      <p>כניסה למערכת תסקירי בדיקה והרמה</p>
+      <label>אימייל
+        <input id="loginEmail" type="email" autocomplete="email" required />
+      </label>
+      <label>סיסמה
+        <input id="loginPassword" type="password" autocomplete="current-password" required />
+      </label>
+      <button class="primary" id="loginBtn" type="submit">כניסה</button>
+      <div id="authMessage" class="app-message" role="status"></div>
+    </form>
+  </section>
+
+  <div class="app-shell hidden" id="appShell">
+    <aside class="sidebar no-print">
+      <div class="brand">
+        <img class="brand-logo" src="logo.png" alt="חד-אור הנדסה" />
+        <div>
+          <h1>חד-אור הנדסה</h1>
+          <p>ניהול תסקירי ניסוי ובדיקות הרמה</p>
+        </div>
+      </div>
+
+      <nav class="steps" aria-label="ניווט ראשי">
+        <button class="step active" data-screen="dashboard">ראשי</button>
+        <button class="step" data-screen="editor">תסקיר חדש</button>
+        <button class="step" data-screen="preview">צפייה בדוח</button>
+        <button class="step" data-screen="archive">ארכיון</button>
+        <button class="step" data-screen="settings">ניהול</button>
+      </nav>
+
+      <div class="sidebar-card">
+        <b>מחובר ל-Supabase</b>
+        <p>הלקוחות, הציוד והתסקירים נשמרים במסד הנתונים.</p>
+        <button class="secondary small" id="logoutBtn" type="button">התנתק</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="appMessage" class="app-message" role="status"></div>
+      <section id="dashboard" class="screen active-screen">
+        <div class="topbar no-print">
+          <div>
+            <p class="eyebrow">מערכת עבודה לבודק מוסמך</p>
+            <h2>תסקיר מקצועי, ציוד דינמי, לקוחות וארכיון</h2>
+          </div>
+          <button class="primary" data-screen="editor">פתח תסקיר חדש</button>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="stat">
+            <span id="statReports">0</span>
+            <p>תסקירים בארכיון</p>
+          </article>
+          <article class="stat">
+            <span id="statEquipment">0</span>
+            <p>פריטי ציוד בדוח הנוכחי</p>
+          </article>
+          <article class="stat">
+            <span id="statStatus">טיוטה</span>
+            <p>סטטוס תסקיר נוכחי</p>
+          </article>
+        </div>
+
+        <div class="workspace-intro">
+          <div>
+            <h3>זרימת עבודה</h3>
+            <p>מעדכנים לקוחות וציוד במסך ניהול, בוחרים לקוח וציוד בתסקיר, ואז שומרים לארכיון או שולחים ללקוח.</p>
+          </div>
+          <div class="quick-actions">
+            <button class="secondary" data-screen="settings">ניהול לקוחות וציוד</button>
+            <button class="secondary" data-screen="archive">פתח ארכיון</button>
+            <button class="secondary" data-screen="preview">צפה בדוח</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="editor" class="screen">
+        <div class="topbar no-print">
+          <div>
+            <p class="eyebrow">עריכת תסקיר</p>
+            <h2>פרטי בדיקה, לקוח וציוד</h2>
+          </div>
+          <div class="header-actions">
+            <button class="secondary" id="newReportBtn" type="button">טיוטה חדשה</button>
+            <button class="primary" id="saveReportBtn" type="button">שמור לארכיון</button>
+          </div>
+        </div>
+
+        <form id="reportForm" class="form-surface">
+          <div class="wizard-steps" aria-label="שלבי יצירת תסקיר">
+            <button class="wizard-step active" type="button" data-editor-step-button="1">1. פרטי תסקיר ולקוח</button>
+            <button class="wizard-step" type="button" data-editor-step-button="2">2. ציוד</button>
+            <button class="wizard-step" type="button" data-editor-step-button="3">3. סיכום והערות</button>
+          </div>
+
+          <div class="editor-step active-editor-step" data-editor-step="1">
+          <section class="form-section">
+            <h3>פרטי תסקיר</h3>
+            <div class="input-grid">
+              <label>כותרת התסקיר
+                <input id="reportTitle" value="תסקיר ניסוי ובדיקה למכונות ואביזרי הרמה" />
+              </label>
+              <label>מספר תסקיר
+                <input id="reportNumber" />
+              </label>
+              <label>מספר תסקיר קודם
+                <input id="previousReportNumber" />
+              </label>
+              <label>תאריך בדיקה
+                <input id="inspectionDate" type="text" inputmode="numeric" placeholder="DD/MM/YYYY" />
+              </label>
+              <label>תוקף התסקיר
+                <input id="validUntil" type="text" inputmode="numeric" placeholder="DD/MM/YYYY" />
+              </label>
+              <label>סטטוס מסכם
+                <select id="finalStatus">
+                  <option>תקין לשימוש</option>
+                  <option>תקין בכפוף להערות</option>
+                  <option>דורש תיקון חוזר</option>
+                  <option>לא תקין לשימוש</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-title-row">
+              <h3>פרטי לקוח ובודק</h3>
+            </div>
+            <div class="selection-row">
+              <label>בחירת לקוח
+                <select id="customerSelect"></select>
+              </label>
+              <button class="secondary small selection-action" id="applyCustomerBtn" type="button">טען</button>
+            </div>
+            <div class="input-grid">
+              <label>שם לקוח
+                <input id="customerName" placeholder="שם חברה / לקוח" />
+              </label>
+              <label>איש קשר
+                <input id="contactName" placeholder="שם איש קשר" />
+              </label>
+              <label>טלפון
+                <input id="contactPhone" placeholder="052-0000000" />
+              </label>
+              <label>אימייל
+                <input id="contactEmail" type="email" placeholder="client@example.com" />
+              </label>
+              <label class="wide-label">כתובת אתר / מקום הבדיקה
+                <input id="siteAddress" placeholder="אתר עבודה, עיר, כתובת" />
+              </label>
+              <label>שם הבודק
+                <input id="inspectorName" placeholder="שם מלא" />
+              </label>
+              <label>מספר רישיון
+                <input id="inspectorLicense" placeholder="31580" />
+              </label>
+            </div>
+          </section>
+          </div>
+
+          <div class="editor-step" data-editor-step="2">
+          <section class="form-section equipment-builder">
+            <div class="section-title-row">
+              <div>
+                <h3>ציוד לבדיקה</h3>
+                <p>בחר פריט מהקטלוג. ערכי ברירת המחדל ניתנים לעריכה במסך ניהול.</p>
+              </div>
+            </div>
+            <div class="selection-row">
+              <label>בחירת ציוד
+                <select id="equipmentType"></select>
+              </label>
+              <button class="primary small selection-action" id="addEquipmentBtn" type="button">הוסף</button>
+            </div>
+            <div id="equipmentList" class="equipment-list"></div>
+          </section>
+          </div>
+
+          <div class="editor-step" data-editor-step="3">
+          <section class="form-section">
+            <div class="input-grid">
+              <label>תאריך עריכת המסמך
+                <input id="documentDate" type="text" inputmode="numeric" placeholder="DD/MM/YYYY" />
+              </label>
+            </div>
+          </section>
+          <section class="form-section">
+            <h3>סיכום והערות</h3>
+            <div class="input-grid">
+              <label class="wide-label">תיאור הליקויים / הערות מקצועיות
+                <textarea id="findings" rows="5" placeholder="פירוט ממצאים, ליקויים, תיקונים נדרשים או מגבלות שימוש"></textarea>
+              </label>
+              <label class="wide-label">הערות כלליות
+                <textarea id="generalNotes" rows="4" placeholder="הערות שיופיעו בסוף התסקיר"></textarea>
+              </label>
+            </div>
+          </section>
+          </div>
+
+          <div class="wizard-actions">
+            <button class="secondary" id="prevEditorStepBtn" type="button">הקודם</button>
+            <button class="primary" id="nextEditorStepBtn" type="button">הבא</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="preview" class="screen">
+        <div class="topbar no-print">
+          <div>
+            <p class="eyebrow">תצוגת מסמך</p>
+            <h2>דוח מוכן להורדה</h2>
+          </div>
+          <div class="header-actions">
+            <button class="secondary" data-screen="editor">חזור לעריכה</button>
+            <button class="primary" id="printBtn" type="button">הורדה</button>
+          </div>
+        </div>
+        <article id="reportPreview" class="report-paper"></article>
+      </section>
+
+      <section id="archive" class="screen">
+        <div class="topbar no-print">
+          <div>
+            <p class="eyebrow">ארכיון תסקירים</p>
+            <h2>חיפוש, צפייה ושליחה חוזרת</h2>
+          </div>
+          <button class="primary" data-screen="editor">תסקיר חדש</button>
+        </div>
+        <div class="archive-toolbar no-print">
+          <input id="archiveSearch" placeholder="חיפוש לפי לקוח, מספר תסקיר או ציוד" />
+          <button class="secondary" id="clearArchiveSearch" type="button">נקה</button>
+        </div>
+        <div id="archiveList" class="archive-list"></div>
+      </section>
+
+      <section id="settings" class="screen">
+        <div class="topbar no-print">
+          <div>
+            <p class="eyebrow">ניהול נתוני ברירת מחדל</p>
+            <h2>לקוחות, Templates ותיאור ציוד</h2>
+          </div>
+          <button class="primary" data-screen="editor">חזור לתסקיר</button>
+        </div>
+
+        <div class="settings-tabs no-print">
+          <button class="settings-tab active" type="button" data-settings-tab="customers">לקוחות</button>
+          <button class="settings-tab" type="button" data-settings-tab="equipment">Templates</button>
+          <button class="settings-tab" type="button" data-settings-tab="suspension">תיאור ציוד</button>
+        </div>
+
+        <div class="settings-grid">
+          <section class="form-surface settings-panel active-settings-panel" data-settings-panel="customers">
+            <div class="section-title-row">
+              <div>
+                <h3>לקוחות</h3>
+                <p>לקוחות חדשים יופיעו לבחירה בתסקיר ויטענו פרטי קשר ואתר.</p>
+              </div>
+              <div class="header-actions">
+                <button class="secondary small" id="addCustomerDefaultBtn" type="button">הוסף לקוח</button>
+                <button class="remove small" id="deleteCustomerDefaultBtn" type="button">מחק</button>
+                <button class="primary small" id="saveCustomerDefaultBtn" type="button">שמור</button>
+              </div>
+            </div>
+            <label class="settings-select-label">בחר לקוח לעריכה
+              <select id="manageCustomerSelect"></select>
+            </label>
+            <div id="customerDefaultsList" class="defaults-list"></div>
+          </section>
+
+          <section class="form-surface settings-panel" data-settings-panel="equipment">
+            <div class="section-title-row">
+              <div>
+                <h3>Templates</h3>
+                <p>מבנה קבוע לכל הלקוחות. הערכים המשתנים נשמרים בתוך הלקוח.</p>
+              </div>
+              <div class="header-actions">
+                <button class="secondary small" id="addEquipmentDefaultBtn" type="button">הוסף Template</button>
+                <button class="remove small" id="deleteEquipmentDefaultBtn" type="button">מחק</button>
+                <button class="primary small" id="saveEquipmentDefaultBtn" type="button">שמור</button>
+              </div>
+            </div>
+            <label class="settings-select-label">Template לעריכה
+              <select id="manageEquipmentSelect"></select>
+            </label>
+            <div id="equipmentDefaultsList" class="defaults-list"></div>
+          </section>
+
+          <section class="form-surface settings-panel" data-settings-panel="suspension">
+            <div class="section-title-row">
+              <div>
+                <h3>תיאור ציוד</h3>
+                <p>הגדר רשימת תיאורי ציוד ואת הפרמטרים שיופיעו לבחירה בטבלת הציוד.</p>
+              </div>
+              <div class="header-actions">
+                <button class="secondary small" id="addSuspensionMethodBtn" type="button">הוסף תיאור</button>
+                <button class="remove small" id="deleteSuspensionMethodBtn" type="button">מחק</button>
+                <button class="primary small" id="saveSuspensionMethodBtn" type="button">שמור</button>
+              </div>
+            </div>
+            <label class="settings-select-label">בחר תיאור לעריכה
+              <select id="manageSuspensionSelect"></select>
+            </label>
+            <div id="suspensionMethodsList" class="defaults-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
+
+
+
+
