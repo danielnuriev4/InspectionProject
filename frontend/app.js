@@ -10,6 +10,10 @@ const state = {
   reports: [],
   equipment: [],
   checks: [],
+  archivePage: 1,
+  archivePageSize: 20,
+  archiveLoaded: false,
+  archiveLoading: false,
   activeSettingsPanel: "customers",
   selectedCustomerDefaultId: "",
   selectedEquipmentCustomerId: "",
@@ -202,13 +206,12 @@ function showApp() {
 async function loadInitialData() {
   try {
     setLoading(true, "טוען נתונים מ-Supabase...");
-    const [customers, equipment, customerEquipmentDefaults, customerEquipmentRowParams, suspensionMethods, reports] = await Promise.all([
+    const [customers, equipment, customerEquipmentDefaults, customerEquipmentRowParams, suspensionMethods] = await Promise.all([
       apiFetch("/api/customers"),
       apiFetch("/api/equipment-catalog"),
       apiFetch("/api/customer-equipment-defaults"),
       apiFetch("/api/customer-equipment-row-params"),
       apiFetch("/api/suspension-methods"),
-      apiFetch("/api/reports?includeArchived=true"),
     ]);
 
     state.customers = (customers.customers || []).map(mapCustomerFromApi);
@@ -216,7 +219,8 @@ async function loadInitialData() {
     state.customerEquipmentDefaults = (customerEquipmentDefaults.defaults || []).map(mapCustomerEquipmentDefaultFromApi);
     state.customerEquipmentRowParams = (customerEquipmentRowParams.params || []).map(mapCustomerEquipmentRowParamFromApi);
     state.suspensionMethods = (suspensionMethods.methods || []).map(mapSuspensionMethodFromApi);
-    state.reports = reports.reports || [];
+    state.reports = [];
+    state.archiveLoaded = false;
 
     populateCustomerSelect();
     populateEquipmentTypes();
@@ -528,12 +532,17 @@ function renderDefinitionParamFields(kind, choice, params = {}) {
 }
 
 function buildConfiguredRow(row = {}) {
-  const params = normalizeObject(row.descriptionParams);
-  if (["equipment_description", "suspension", "platform", "motors"].includes(row.kind)) {
-    const definition = getEquipmentDescriptionDefinition(row.descriptionChoice);
-    if (definition) return { ...row, description: definition.description(defaultSuspensionParams(row.descriptionChoice, params)) };
-  }
-  return row;
+  const blocks = normalizeRowDescriptionBlocks(row);
+  return {
+    ...row,
+    descriptionBlocks: blocks,
+    description: row.description || rowDisplayDescription({ ...row, descriptionBlocks: blocks }),
+  };
+}
+
+function rowDisplayDescription(row = {}) {
+  const text = normalizeRowDescriptionBlocks(row).map(descriptionBlockText).filter(Boolean).join("\n\n");
+  return text || row.description || "";
 }
 
 function renderSuspensionParamFields(method, params = {}) {
@@ -637,30 +646,36 @@ function parseSuspensionParams(value = "") {
 function normalizeEquipmentRows(rows, fallback = {}) {
   const sourceRows = Array.isArray(rows) ? rows : [];
   if (sourceRows.length) {
-    return sourceRows.map((row) => ({
-      id: row.id || crypto.randomUUID(),
-      kind: row.kind === "fixed" || !row.kind ? "free_text" : row.kind,
-      descriptionChoice: row.descriptionChoice || row.description_choice || "",
-      descriptionParams: normalizeObject(row.descriptionParams || row.description_params),
-      description: row.description || "",
-      makerModel: row.makerModel || row.maker_model || "",
-      serial: row.serial || "",
-    }));
+    return sourceRows.map((row) => {
+      const normalized = {
+        id: row.id || crypto.randomUUID(),
+        kind: row.kind === "fixed" || !row.kind ? "free_text" : row.kind,
+        descriptionChoice: row.descriptionChoice || row.description_choice || "",
+        descriptionParams: normalizeObject(row.descriptionParams || row.description_params),
+        descriptionBlocks: normalizeDescriptionBlocks(row.descriptionBlocks || row.description_blocks),
+        description: row.description || "",
+        makerModel: row.makerModel || row.maker_model || "",
+        serial: row.serial || "",
+      };
+      return { ...normalized, descriptionBlocks: normalizeRowDescriptionBlocks(normalized) };
+    });
   }
 
-  return [{
+  const row = {
     id: crypto.randomUUID(),
     description: fallback.description || "",
     kind: fallback.kind || "free_text",
     descriptionChoice: fallback.descriptionChoice || "",
     descriptionParams: normalizeObject(fallback.descriptionParams),
+    descriptionBlocks: normalizeDescriptionBlocks(fallback.descriptionBlocks),
     makerModel: [fallback.manufacturer, fallback.model].filter(Boolean).join("\n"),
     serial: fallback.serial || "",
-  }];
+  };
+  return [{ ...row, descriptionBlocks: normalizeRowDescriptionBlocks(row) }];
 }
 
 function emptyEquipmentRow(kind = "") {
-  return {
+  const row = {
     id: crypto.randomUUID(),
     kind: kind || "free_text",
     descriptionChoice: "",
@@ -669,6 +684,7 @@ function emptyEquipmentRow(kind = "") {
     makerModel: "",
     serial: "",
   };
+  return { ...row, descriptionBlocks: normalizeRowDescriptionBlocks(row) };
 }
 
 function defaultCustomerEquipmentRows() {
@@ -728,7 +744,7 @@ function showScreen(id) {
   });
   if (id === "editor") showEditorStep(activeEditorStep);
   if (id === "preview") renderPreview();
-  if (id === "archive") renderArchive();
+  if (id === "archive") ensureArchiveLoaded();
   if (id === "settings") renderSettings();
   updateStats();
   queueResizeAutoTextareas();
@@ -746,6 +762,53 @@ function showEditorStep(step) {
   prevEditorStepBtn.disabled = activeEditorStep === 1;
   nextEditorStepBtn.textContent = activeEditorStep === 3 ? "שמור לארכיון" : "הבא";
   queueResizeAutoTextareas();
+}
+
+function normalizeDescriptionBlocks(blocks) {
+  return (Array.isArray(blocks) ? blocks : []).map((block) => ({
+    id: block.id || crypto.randomUUID(),
+    kind: block.kind || (block.text ? "free_text" : "equipment_description"),
+    descriptionChoice: block.descriptionChoice || block.description_choice || "",
+    descriptionParams: normalizeObject(block.descriptionParams || block.description_params),
+    text: block.text || "",
+  }));
+}
+
+function normalizeRowDescriptionBlocks(row = {}) {
+  const blocks = normalizeDescriptionBlocks(row.descriptionBlocks);
+  if (blocks.length) return blocks;
+  if (row.descriptionChoice || row.kind === "equipment_description") {
+    return [{
+      id: crypto.randomUUID(),
+      kind: "equipment_description",
+      descriptionChoice: row.descriptionChoice || "",
+      descriptionParams: normalizeObject(row.descriptionParams),
+      text: "",
+    }];
+  }
+  if (row.description) {
+    return [{
+      id: crypto.randomUUID(),
+      kind: "free_text",
+      descriptionChoice: "",
+      descriptionParams: {},
+      text: row.description,
+    }];
+  }
+  return [{
+    id: crypto.randomUUID(),
+    kind: "equipment_description",
+    descriptionChoice: "",
+    descriptionParams: {},
+    text: "",
+  }];
+}
+
+function descriptionBlockText(block = {}) {
+  if ((block.kind || "") === "free_text") return String(block.text || "").trim();
+  const definition = getEquipmentDescriptionDefinition(block.descriptionChoice);
+  if (!definition) return "";
+  return definition.description(defaultSuspensionParams(block.descriptionChoice, block.descriptionParams));
 }
 
 function goToNextEditorStep() {
@@ -803,6 +866,12 @@ function addMonthsToIsoDate(isoDate, months) {
   const date = new Date(Date.UTC(year, month - 1 + months, 1));
   const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
   date.setUTCDate(Math.min(day, lastDay));
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysToIsoDate(isoDate, days) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
   return date.toISOString().slice(0, 10);
 }
 
@@ -891,6 +960,7 @@ function resetDraft() {
   byId("reportForm").reset();
   const today = todayIsraelIso();
   setValue("reportTitle", "תסקיר ניסוי ובדיקה למכונות ואביזרי הרמה");
+  setValue("reportNumber", "");
   setDateValue("inspectionDate", today);
   setDateValue("validUntil", addMonthsToIsoDate(today, 6));
   setDateValue("documentDate", today);
@@ -905,6 +975,19 @@ function resetDraft() {
   renderPreview();
   showEditorStep(1);
   updateStats();
+  fillNextReportNumber();
+}
+
+async function fillNextReportNumber() {
+  try {
+    const payload = await apiFetch("/api/reports/next-number");
+    if (!state.currentId && !formValue("reportNumber")) {
+      setValue("reportNumber", payload.nextNumber || "");
+      updateStats();
+    }
+  } catch {
+    // Keep the report number empty if the automatic lookup is unavailable.
+  }
 }
 
 async function saveReport() {
@@ -1177,19 +1260,9 @@ function renderEquipmentRowsEditor(rows, prefix) {
               </td>
               <td data-mobile-label="תיאור הציוד">
                 <div class="row-config">
-                  <select data-${prefix}-field="kind">
-                    ${renderRowKindOptions(row.kind || "")}
-                  </select>
-                  ${["equipment_description", "suspension", "platform", "motors"].includes(row.kind) ? `
-                    <select data-${prefix}-field="descriptionChoice">
-                      ${renderRowChoiceOptions(row.kind, row.descriptionChoice)}
-                    </select>
-                    <div class="row-param-grid">
-                      ${renderDefinitionParamFields(row.kind, row.descriptionChoice, row.descriptionParams)}
-                    </div>
-                  ` : ""}
+                  ${renderDescriptionBlocksEditor(normalizeRowDescriptionBlocks(row), prefix)}
+                  <button class="secondary small" type="button" data-add-row-description-block="${row.id}">+ הוסף תיאור באותו ריבוע</button>
                 </div>
-                <textarea class="auto-size-textarea equipment-table-textarea" data-${prefix}-field="description" rows="3">${escapeHtml(row.description)}</textarea>
               </td>
               <td data-mobile-label="יצרן ודגם"><textarea class="auto-size-textarea equipment-table-textarea" data-${prefix}-field="makerModel" rows="2">${escapeHtml(row.makerModel)}</textarea></td>
               <td data-mobile-label="מס&quot;ד / מס' רישוי"><textarea class="auto-size-textarea equipment-table-textarea" data-${prefix}-field="serial" rows="2">${escapeHtml(row.serial)}</textarea></td>
@@ -1201,6 +1274,46 @@ function renderEquipmentRowsEditor(rows, prefix) {
   `;
   queueResizeAutoTextareas();
   return html;
+}
+
+function renderDescriptionBlocksEditor(blocks = [], prefix = "row") {
+  const normalized = normalizeDescriptionBlocks(blocks);
+  if (!normalized.length) return "";
+  return `
+    <div class="description-block-list">
+      ${normalized.map((block, index) => `
+        <div class="description-block-editor" data-description-block-id="${block.id}">
+          <div class="description-block-title">
+            <span>תיאור ${index + 1}</span>
+            <span class="description-block-actions">
+              <button class="secondary small icon-row-btn" type="button" data-move-row-description-block="${block.id}" data-direction="up" ${index === 0 ? "disabled" : ""}>↑</button>
+              <button class="secondary small icon-row-btn" type="button" data-move-row-description-block="${block.id}" data-direction="down" ${index === normalized.length - 1 ? "disabled" : ""}>↓</button>
+              <button class="remove small" type="button" data-remove-row-description-block="${block.id}">X</button>
+            </span>
+          </div>
+          <select data-description-block-field="kind">
+            <option value="equipment_description" ${block.kind !== "free_text" ? "selected" : ""}>תיאור מתוך רשימה</option>
+            <option value="free_text" ${block.kind === "free_text" ? "selected" : ""}>מלל חופשי</option>
+          </select>
+          ${block.kind === "free_text" ? `
+            <textarea class="auto-size-textarea equipment-table-textarea" data-description-block-field="text" rows="2">${escapeHtml(block.text || "")}</textarea>
+          ` : `
+            <select data-description-block-field="descriptionChoice">
+              <option value="">בחר תיאור ציוד</option>
+              ${renderRowChoiceOptions("equipment_description", block.descriptionChoice)}
+            </select>
+            <div class="row-param-grid">
+              ${renderDefinitionParamFields("equipment_description", block.descriptionChoice, block.descriptionParams).replaceAll("data-row-param-field", "data-description-block-param-field")}
+            </div>
+          `}
+          <div class="description-block-preview">
+            <span>תצוגה בדוח</span>
+            <p>${escapeHtml(descriptionBlockText(block) || "לא יוצג בדוח עד למילוי תוכן").replaceAll("\n", "<br>")}</p>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
 }
 
 function collectEquipment() {
@@ -1236,13 +1349,27 @@ function collectEquipment() {
         params[input.dataset.rowParamField] = input.value.trim();
         return params;
       }, {}),
-      description: row.querySelector('[data-row-field="description"]').value.trim(),
+      descriptionBlocks: readDescriptionBlocks(row, { keepBlank: true }),
+      description: "",
       makerModel: row.querySelector('[data-row-field="makerModel"]').value.trim(),
       serial: row.querySelector('[data-row-field="serial"]').value.trim(),
     }));
-    result.rows = currentRows;
+    result.rows = currentRows.map(buildConfiguredRow);
     return { ...source, ...result };
   });
+}
+
+function readDescriptionBlocks(rowElement, { keepBlank = false } = {}) {
+  return [...rowElement.querySelectorAll("[data-description-block-id]")].map((block) => ({
+    id: block.dataset.descriptionBlockId,
+    kind: block.querySelector('[data-description-block-field="kind"]')?.value.trim() || "equipment_description",
+    descriptionChoice: block.querySelector('[data-description-block-field="descriptionChoice"]')?.value.trim() || "",
+    descriptionParams: [...block.querySelectorAll("[data-description-block-param-field]")].reduce((params, input) => {
+      params[input.dataset.descriptionBlockParamField] = input.value.trim();
+      return params;
+    }, {}),
+    text: block.querySelector('[data-description-block-field="text"]')?.value.trim() || "",
+  })).filter((block) => keepBlank || (block.kind === "free_text" ? block.text : block.descriptionChoice));
 }
 
 function collectChecks() {
@@ -1701,19 +1828,20 @@ function readEquipmentDefaultForm() {
       return params;
     }, {});
   }
-  const rows = [...card.querySelectorAll("[data-equipment-row-id]")].map((row) => ({
-    id: row.dataset.equipmentRowId,
-    kind: row.querySelector('[data-default-row-field="kind"]')?.value.trim() || row.dataset.equipmentRowKind || "",
-    descriptionChoice: row.querySelector('[data-default-row-field="descriptionChoice"]')?.value.trim() || "",
-    descriptionParams: [...row.querySelectorAll("[data-row-param-field]")].reduce((params, input) => {
-      params[input.dataset.rowParamField] = input.value.trim();
-      return params;
-    }, {}),
-    description: row.querySelector('[data-default-row-field="description"]').value.trim(),
-    makerModel: row.querySelector('[data-default-row-field="makerModel"]').value.trim(),
-    serial: row.querySelector('[data-default-row-field="serial"]').value.trim(),
-  }));
-  result.rows = rows;
+    const rows = [...card.querySelectorAll("[data-equipment-row-id]")].map((row) => ({
+      id: row.dataset.equipmentRowId,
+      kind: row.querySelector('[data-default-row-field="kind"]')?.value.trim() || row.dataset.equipmentRowKind || "",
+      descriptionChoice: row.querySelector('[data-default-row-field="descriptionChoice"]')?.value.trim() || "",
+      descriptionParams: [...row.querySelectorAll("[data-row-param-field]")].reduce((params, input) => {
+        params[input.dataset.rowParamField] = input.value.trim();
+        return params;
+      }, {}),
+      descriptionBlocks: readDescriptionBlocks(row, { keepBlank: true }),
+      description: "",
+      makerModel: row.querySelector('[data-default-row-field="makerModel"]').value.trim(),
+      serial: row.querySelector('[data-default-row-field="serial"]').value.trim(),
+    }));
+  result.rows = rows.map(buildConfiguredRow);
   return result;
 }
 
@@ -2241,7 +2369,7 @@ function renderPreviewEquipmentRows(report) {
 
       return rows.map((row, index) => `
         <tr>
-          <td class="equipment-notes-cell">${escapeHtml(row.description || "-").replaceAll("\n", "<br>")}</td>
+          <td class="equipment-notes-cell">${escapeHtml(rowDisplayDescription(row) || "-").replaceAll("\n", "<br>")}</td>
           <td class="yellow-cell">${escapeHtml(row.makerModel || "-").replaceAll("\n", "<br>")}</td>
           <td>${escapeHtml(row.serial || "-").replaceAll("\n", "<br>")}</td>
           ${index === 0 ? `<td rowspan="${rows.length}" class="load-rowspan-cell"><div class="load-rowspan-content">${escapeHtml(testLoad)}</div></td>` : ""}
@@ -2376,12 +2504,96 @@ function renderPreview(report = getReportData()) {
   `;
 }
 
+function setArchiveDefaultRange(preset = byId("archiveDatePreset")?.value || "week") {
+  const today = todayIsraelIso();
+  document.querySelector(".archive-toolbar")?.classList.toggle("is-custom-range", preset === "custom");
+  const fromByPreset = {
+    week: addDaysToIsoDate(today, -7),
+    month: addMonthsToIsoDate(today, -1),
+    year: addMonthsToIsoDate(today, -12),
+  };
+  if (preset !== "custom") {
+    byId("archiveFromDate").value = fromByPreset[preset] || fromByPreset.week;
+    byId("archiveToDate").value = today;
+  }
+}
+
+function ensureArchiveLoaded() {
+  setArchiveDefaultRange(byId("archiveDatePreset")?.value || "week");
+  if (!state.archiveLoaded) {
+    setArchiveDefaultRange("week");
+    loadArchiveReports();
+    return;
+  }
+  renderArchive();
+}
+
+function collectArchiveFilters() {
+  const filters = {};
+  document.querySelectorAll("[data-archive-filter]").forEach((checkbox) => {
+    const key = checkbox.dataset.archiveFilter;
+    const input = document.querySelector(`[data-archive-filter-value="${key}"]`);
+    if (input) input.disabled = !checkbox.checked;
+    if (checkbox.checked && input?.value.trim()) {
+      filters[key] = input.value.trim();
+    }
+  });
+  return filters;
+}
+
+async function loadArchiveReports(page = 1) {
+  try {
+    state.archiveLoading = true;
+    state.archivePage = page;
+    renderArchive();
+    const params = new URLSearchParams();
+    const from = byId("archiveFromDate").value;
+    const to = byId("archiveToDate").value;
+    const filters = collectArchiveFilters();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    if (Object.keys(filters).length) params.set("filters", JSON.stringify(filters));
+    const payload = await apiFetch(`/api/reports/archive?${params.toString()}`);
+    state.reports = (payload.reports || []).sort(compareArchiveReports);
+    state.archiveLoaded = true;
+    state.archivePage = 1;
+    renderArchive();
+  } catch (error) {
+    showMessage(error.message, "error");
+  } finally {
+    state.archiveLoading = false;
+    renderArchive();
+  }
+}
+
+function compareArchiveReports(a, b) {
+  const dateCompare = String(b.inspectionDate || "").localeCompare(String(a.inspectionDate || ""));
+  if (dateCompare) return dateCompare;
+  return Number(b.reportNumber || 0) - Number(a.reportNumber || 0);
+}
+
 function renderArchive() {
-  const query = byId("archiveSearch").value.trim().toLowerCase();
-  const reports = state.reports.filter((report) => archiveSearchText(report).includes(query));
+  const pagination = byId("archivePagination");
+  if (state.archiveLoading) {
+    archiveList.innerHTML = '<div class="empty-state">טוען דוחות...</div>';
+    if (pagination) pagination.innerHTML = "";
+    return;
+  }
+
+  if (!state.archiveLoaded) {
+    archiveList.innerHTML = '<div class="empty-state">בחר סינון ולחץ חפש להצגת דוחות.</div>';
+    if (pagination) pagination.innerHTML = "";
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(state.reports.length / state.archivePageSize));
+  state.archivePage = Math.min(Math.max(1, state.archivePage), totalPages);
+  const start = (state.archivePage - 1) * state.archivePageSize;
+  const reports = state.reports.slice(start, start + state.archivePageSize);
 
   if (!reports.length) {
     archiveList.innerHTML = '<div class="empty-state">לא נמצאו תסקירים בארכיון.</div>';
+    if (pagination) pagination.innerHTML = "";
     return;
   }
 
@@ -2397,18 +2609,14 @@ function renderArchive() {
       </div>
     </article>
   `).join("");
-}
 
-function archiveSearchText(report) {
-  return [
-    report.reportNumber,
-    report.previousReportNumber,
-    ...(report.equipment || []).flatMap((item) => [
-      item.scaffoldNumber,
-      ...(item.motorNumbers || []),
-      ...(item.rows || []).map((row) => row.serial),
-    ]),
-  ].flat().filter(Boolean).join(" ").toLowerCase();
+  if (pagination) {
+    pagination.innerHTML = totalPages > 1 ? `
+      <button class="secondary small" type="button" data-archive-page="${state.archivePage - 1}" ${state.archivePage === 1 ? "disabled" : ""}>הקודם</button>
+      <span>עמוד ${state.archivePage} מתוך ${totalPages} | ${state.reports.length} תוצאות</span>
+      <button class="secondary small" type="button" data-archive-page="${state.archivePage + 1}" ${state.archivePage === totalPages ? "disabled" : ""}>הבא</button>
+    ` : `<span>${state.reports.length} תוצאות</span>`;
+  }
 }
 
 async function downloadReportForExport(report = getReportData(), options = {}) {
@@ -3108,9 +3316,31 @@ printButton.addEventListener("touchend", (event) => {
   lastPrintTouchAt = Date.now();
   downloadReportForExport(getReportData(), { mobileBlob: true });
 }, { passive: false });
-byId("archiveSearch").addEventListener("input", renderArchive);
-byId("clearArchiveSearch").addEventListener("click", () => {
-  byId("archiveSearch").value = "";
+byId("archiveDatePreset")?.addEventListener("change", (event) => {
+  setArchiveDefaultRange(event.target.value);
+});
+byId("archiveSearchBtn")?.addEventListener("click", () => loadArchiveReports(1));
+byId("clearArchiveSearch")?.addEventListener("click", () => {
+  byId("archiveDatePreset").value = "week";
+  setArchiveDefaultRange("week");
+  document.querySelectorAll("[data-archive-filter]").forEach((checkbox) => {
+    checkbox.checked = false;
+  });
+  document.querySelectorAll("[data-archive-filter-value]").forEach((input) => {
+    input.value = "";
+    input.disabled = true;
+  });
+  loadArchiveReports(1);
+});
+byId("archiveFilterGrid")?.addEventListener("change", (event) => {
+  if (event.target.dataset.archiveFilter) {
+    collectArchiveFilters();
+  }
+});
+byId("archivePagination")?.addEventListener("click", (event) => {
+  const page = Number(event.target.dataset.archivePage || 0);
+  if (!page) return;
+  state.archivePage = page;
   renderArchive();
 });
 
@@ -3127,6 +3357,8 @@ equipmentList.addEventListener("change", (event) => {
     || event.target.dataset.paramField
     || event.target.dataset.platformParamField
     || event.target.dataset.rowParamField
+    || event.target.dataset.descriptionBlockField
+    || event.target.dataset.descriptionBlockParamField
   ) {
     state.equipment = collectEquipment().map((item) => {
       const changedCard = event.target.closest(".equipment-card");
@@ -3144,6 +3376,8 @@ equipmentDefaultsList.addEventListener("change", (event) => {
     || event.target.dataset.paramField
     || event.target.dataset.platformParamField
     || event.target.dataset.rowParamField
+    || event.target.dataset.descriptionBlockField
+    || event.target.dataset.descriptionBlockParamField
   ) {
     const equipment = readEquipmentDefaultForm();
     if (equipment) {
@@ -3163,6 +3397,10 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("click", async (event) => {
+  if (event.target.closest("[data-add-row-description-block], [data-remove-row-description-block], [data-move-row-description-block]")) {
+    event.stopPropagation();
+  }
+
   const equipmentEditorCell = event.target.closest(".equipment-row-editor td");
   if (equipmentEditorCell && !event.target.closest("textarea, input, select, button")) {
     const field = equipmentEditorCell.querySelector("textarea, input, select");
@@ -3185,6 +3423,9 @@ document.addEventListener("click", async (event) => {
   const addDefaultDescriptionBlock = event.target.dataset.addDefaultDescriptionBlock !== undefined;
   const addEquipmentRowId = event.target.dataset.addEquipmentRow;
   const addDefaultEquipmentRowId = event.target.dataset.addDefaultEquipmentRow;
+  const addRowDescriptionBlockId = event.target.dataset.addRowDescriptionBlock;
+  const removeRowDescriptionBlockId = event.target.dataset.removeRowDescriptionBlock;
+  const moveRowDescriptionBlockId = event.target.dataset.moveRowDescriptionBlock;
   const addCustomerRowParam = event.target.dataset.addCustomerRowParam !== undefined;
   const removeCustomerRowParamId = event.target.dataset.removeCustomerRowParam;
   const removeEquipmentRowId = event.target.dataset.removeEquipmentRow;
@@ -3216,6 +3457,79 @@ document.addEventListener("click", async (event) => {
     if (equipment) {
       updateEquipmentEditorState({ ...equipment, rows: [...(equipment.rows || []), emptyEquipmentRow()] });
       renderEquipmentDefaults();
+    }
+  }
+
+  if (addRowDescriptionBlockId) {
+    const appendBlock = (rows) => rows.map((row) => row.id === addRowDescriptionBlockId
+      ? {
+          ...row,
+          descriptionBlocks: [
+            ...normalizeDescriptionBlocks(row.descriptionBlocks),
+            { id: crypto.randomUUID(), kind: "equipment_description", descriptionChoice: "", descriptionParams: {}, text: "" },
+          ],
+        }
+      : row);
+    const card = event.target.closest(".equipment-card");
+    if (card) {
+      state.equipment = collectEquipment().map((item) => item.id === card.dataset.id
+        ? { ...item, rows: appendBlock(item.rows || []) }
+        : item);
+      renderEquipment();
+    } else {
+      const equipment = readEquipmentDefaultForm();
+      if (equipment) {
+        updateEquipmentEditorState({ ...equipment, rows: appendBlock(equipment.rows || []) });
+        renderEquipmentDefaults();
+      }
+    }
+  }
+
+  if (removeRowDescriptionBlockId) {
+    const removeBlock = (rows) => rows.map((row) => ({
+      ...row,
+      descriptionBlocks: normalizeDescriptionBlocks(row.descriptionBlocks).filter((block) => block.id !== removeRowDescriptionBlockId),
+    }));
+    const card = event.target.closest(".equipment-card");
+    if (card) {
+      state.equipment = collectEquipment().map((item) => item.id === card.dataset.id
+        ? { ...item, rows: removeBlock(item.rows || []) }
+        : item);
+      renderEquipment();
+    } else {
+      const equipment = readEquipmentDefaultForm();
+      if (equipment) {
+        updateEquipmentEditorState({ ...equipment, rows: removeBlock(equipment.rows || []) });
+        renderEquipmentDefaults();
+      }
+    }
+  }
+
+  if (moveRowDescriptionBlockId) {
+    const moveBlock = (blocks) => {
+      const next = normalizeDescriptionBlocks(blocks);
+      const index = next.findIndex((block) => block.id === moveRowDescriptionBlockId);
+      if (index === -1) return next;
+      const targetIndex = moveDirection === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= next.length) return next;
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    };
+    const moveRows = (rows) => rows.map((row) => normalizeDescriptionBlocks(row.descriptionBlocks).some((block) => block.id === moveRowDescriptionBlockId)
+      ? { ...row, descriptionBlocks: moveBlock(row.descriptionBlocks) }
+      : row);
+    const card = event.target.closest(".equipment-card");
+    if (card) {
+      state.equipment = collectEquipment().map((item) => item.id === card.dataset.id
+        ? { ...item, rows: moveRows(item.rows || []) }
+        : item);
+      renderEquipment();
+    } else {
+      const equipment = readEquipmentDefaultForm();
+      if (equipment) {
+        updateEquipmentEditorState({ ...equipment, rows: moveRows(equipment.rows || []) });
+        renderEquipmentDefaults();
+      }
     }
   }
 
