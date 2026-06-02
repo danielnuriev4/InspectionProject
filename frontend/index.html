@@ -242,10 +242,45 @@
           <button class="primary" data-screen="editor">תסקיר חדש</button>
         </div>
         <div class="archive-toolbar no-print">
-          <input id="archiveSearch" placeholder="חיפוש לפי לקוח, מספר תסקיר או ציוד" />
-          <button class="secondary" id="clearArchiveSearch" type="button">נקה</button>
+          <div class="archive-date-row">
+            <label>טווח מהיר
+              <select id="archiveDatePreset">
+                <option value="week">שבוע אחרון</option>
+                <option value="month">חודש אחרון</option>
+                <option value="year">שנה אחרונה</option>
+                <option value="custom">מותאם אישית</option>
+              </select>
+            </label>
+            <label class="archive-custom-date">מתאריך
+              <input id="archiveFromDate" type="date" />
+            </label>
+            <label class="archive-custom-date">עד תאריך
+              <input id="archiveToDate" type="date" />
+            </label>
+            <button class="primary" id="archiveSearchBtn" type="button">חפש</button>
+            <button class="secondary" id="clearArchiveSearch" type="button">איפוס</button>
+          </div>
+          <details class="archive-advanced-filters">
+            <summary>סינון מתקדם לפי שדות</summary>
+            <div class="archive-filter-grid" id="archiveFilterGrid">
+              <label><span><input type="checkbox" data-archive-filter="reportNumber" /> מספר תסקיר</span><input data-archive-filter-value="reportNumber" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="previousReportNumber" /> מספר תסקיר קודם</span><input data-archive-filter-value="previousReportNumber" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="customerName" /> לקוח הנבדק</span><input data-archive-filter-value="customerName" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="contactName" /> איש קשר</span><input data-archive-filter-value="contactName" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="contactPhone" /> טלפון</span><input data-archive-filter-value="contactPhone" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="contactEmail" /> אימייל</span><input data-archive-filter-value="contactEmail" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="siteAddress" /> מיקום בדיקה</span><input data-archive-filter-value="siteAddress" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="finalStatus" /> סיכום</span><input data-archive-filter-value="finalStatus" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="equipmentDescription" /> הערות לציוד שנבדק</span><input data-archive-filter-value="equipmentDescription" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="makerModel" /> יצרן ודגם</span><input data-archive-filter-value="makerModel" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="serial" /> מס"ד / מספר רישוי</span><input data-archive-filter-value="serial" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="testLoad" /> עומס מבחן</span><input data-archive-filter-value="testLoad" placeholder="ערך לחיפוש" disabled /></label>
+              <label><span><input type="checkbox" data-archive-filter="safeLoad" /> עומס עבודה בטוח</span><input data-archive-filter-value="safeLoad" placeholder="ערך לחיפוש" disabled /></label>
+            </div>
+          </details>
         </div>
         <div id="archiveList" class="archive-list"></div>
+        <div id="archivePagination" class="archive-pagination no-print"></div>
       </section>
 
       <section id="settings" class="screen">

@@ -29,15 +29,47 @@ router.get("/", async (req, res, next) => {
 
 router.get("/archive", async (req, res, next) => {
   try {
-    const { data, error } = await req.db
+    const from = normalizeDateQuery(req.query.from);
+    const to = normalizeDateQuery(req.query.to);
+    const filters = parseArchiveFilters(req.query.filters);
+
+    let query = req.db
       .from("reports")
       .select("*, report_equipment(*)")
-      .is("deleted_at", null)
-      .not("archived_at", "is", null)
-      .order("archived_at", { ascending: false });
+      .is("deleted_at", null);
+
+    if (from) query = query.gte("inspection_date", from);
+    if (to) query = query.lte("inspection_date", to);
+
+    const { data, error } = await query
+      .order("inspection_date", { ascending: false, nullsFirst: false })
+      .order("report_number", { ascending: false });
 
     if (error) throw error;
-    res.json({ reports: (data || []).map(mapReportFromDb) });
+
+    const reports = (data || []).map(mapReportFromDb).filter((report) => archiveReportMatchesFilters(report, filters));
+    res.json({ reports });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/next-number", async (req, res, next) => {
+  try {
+    const { data, error } = await req.db
+      .from("reports")
+      .select("report_number")
+      .is("deleted_at", null);
+
+    if (error) throw error;
+
+    const maxNumber = (data || []).reduce((max, report) => {
+      const value = String(report.report_number || "").trim();
+      if (!/^\d+$/.test(value)) return max;
+      return Math.max(max, Number(value));
+    }, 0);
+
+    res.json({ nextNumber: maxNumber > 0 ? String(maxNumber + 1) : "" });
   } catch (error) {
     next(error);
   }
@@ -270,6 +302,56 @@ function firstRowValue(rows, field) {
   const snakeField = field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
   const row = Array.isArray(rows) ? rows.find((item) => item?.[field] || item?.[snakeField]) : null;
   return row?.[field] || row?.[snakeField] || "";
+}
+
+function normalizeDateQuery(value) {
+  const text = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function parseArchiveFilters(value) {
+  if (!value) return {};
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function archiveReportMatchesFilters(report, filters = {}) {
+  return Object.entries(filters).every(([key, rawValue]) => {
+    const value = String(rawValue || "").trim().toLowerCase();
+    if (!value) return true;
+    return archiveFieldValues(report, key).some((item) => String(item || "").toLowerCase().includes(value));
+  });
+}
+
+function archiveFieldValues(report, key) {
+  const equipment = Array.isArray(report.equipment) ? report.equipment : [];
+  const rows = equipment.flatMap((item) => Array.isArray(item.rows) ? item.rows : []);
+
+  const fieldValues = {
+    reportNumber: [report.reportNumber],
+    previousReportNumber: [report.previousReportNumber],
+    customerName: [report.customerName],
+    contactName: [report.contactName],
+    contactPhone: [report.contactPhone],
+    contactEmail: [report.contactEmail],
+    siteAddress: [report.siteAddress],
+    inspectorName: [report.inspectorName],
+    inspectorLicense: [report.inspectorLicense],
+    finalStatus: [report.finalStatus],
+    findings: [report.findings],
+    generalNotes: [report.generalNotes],
+    equipmentDescription: rows.map((row) => row.description),
+    makerModel: rows.map((row) => row.makerModel),
+    serial: rows.map((row) => row.serial),
+    testLoad: equipment.map((item) => item.selfWeight),
+    safeLoad: equipment.map((item) => item.safeLoad),
+  };
+
+  return (fieldValues[key] || []).flat().filter(Boolean);
 }
 
 export default router;
