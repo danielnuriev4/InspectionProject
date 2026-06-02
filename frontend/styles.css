@@ -1400,11 +1400,42 @@ label:has([data-removed-field]) {
 
   .archive-filter-grid {
     grid-template-columns: 1fr;
-    padding: 10px;
+    gap: 0;
+    padding: 0;
   }
 
   .archive-advanced-filters summary {
     overflow-wrap: anywhere;
+  }
+
+  .archive-filter-grid label {
+    border: 0;
+    border-radius: 0;
+    border-top: 1px solid var(--line);
+    background: #fff;
+    padding: 9px 10px;
+    gap: 6px;
+  }
+
+  .archive-filter-grid label span {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 6px;
+    align-items: center;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+
+  .archive-filter-grid label span input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+  }
+
+  .archive-filter-grid input[data-archive-filter-value] {
+    min-height: 38px;
+    padding: 8px 10px;
+    font-size: 14px;
   }
 
   .settings-tabs {
