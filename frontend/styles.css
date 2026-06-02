@@ -809,16 +809,18 @@ label:has([data-removed-field]) {
 
 .archive-filter-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 10px;
   padding: 12px;
   border-top: 1px solid var(--line);
+  min-width: 0;
 }
 
 .archive-filter-grid label {
   display: grid;
   grid-template-columns: 1fr;
   gap: 7px;
+  min-width: 0;
   margin: 0;
   padding: 9px;
   border: 1px solid var(--line);
@@ -830,7 +832,15 @@ label:has([data-removed-field]) {
   display: flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
   font-weight: 800;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.archive-filter-grid input[data-archive-filter-value] {
+  min-width: 0;
+  width: 100%;
 }
 
 .archive-filter-grid input[type="text"],
@@ -1377,6 +1387,24 @@ label:has([data-removed-field]) {
   .archive-date-row,
   .selection-row {
     grid-template-columns: 1fr;
+  }
+
+  .archive-toolbar,
+  .archive-advanced-filters,
+  .archive-filter-grid,
+  .archive-filter-grid label {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .archive-filter-grid {
+    grid-template-columns: 1fr;
+    padding: 10px;
+  }
+
+  .archive-advanced-filters summary {
+    overflow-wrap: anywhere;
   }
 
   .settings-tabs {
